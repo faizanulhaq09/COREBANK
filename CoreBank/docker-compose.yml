@@ -1,28 +1,45 @@
-version: '3.8' # Docker Compose file format version
+version: '3.8'
 
 services:
-  # --- MySQL Database Service ---
+  user-service:
+    build:
+      context: ./user-service
+      dockerfile: Dockerfile
+    container_name: corebank-user-service
+    ports:
+      - "8085:8080"
+    depends_on:
+      mysql:
+        condition: service_healthy
+      kafka:
+        condition: service_started
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/corebank_db
+      SPRING_DATASOURCE_USERNAME: corebank_user
+      SPRING_DATASOURCE_PASSWORD: corebank_password
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+
+
   mysql:
-    image: mysql:8.0 # Using MySQL 8.0 image
+    image: mysql:8.0
     container_name: corebank-mysql
     ports:
-      - "3307:3306" # Map host port 3306 to container port 3306 (default MySQL port)
+      - "3307:3306"
     environment:
-      MYSQL_ROOT_PASSWORD: root_password # Root password for MySQL
-      MYSQL_DATABASE: corebank_db # Our database name
-      MYSQL_USER: corebank_user # Database user
-      MYSQL_PASSWORD: corebank_password # Database password
+      MYSQL_ROOT_PASSWORD: root_password
+      MYSQL_DATABASE: corebank_db
+      MYSQL_USER: corebank_user
+      MYSQL_PASSWORD: corebank_password
     volumes:
-      - mysql_data:/var/lib/mysql # Persist data in a named volume
-    healthcheck: # Health check to ensure DB is ready before other services start
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u$$MYSQL_USER", "-p$$MYSQL_PASSWORD"]
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "corebank_user", "-pcorebank_password"]
       interval: 5s
       timeout: 5s
       retries: 5
 
-  # --- Kafka Services (Zookeeper and Broker) ---
   zookeeper:
-    image: confluentinc/cp-zookeeper:7.5.3 # Zookeeper for Kafka coordination
+    image: confluentinc/cp-zookeeper:7.5.3
     container_name: corebank-zookeeper
     ports:
       - "2181:2181"
@@ -31,27 +48,28 @@ services:
       ZOOKEEPER_TICK_TIME: 2000
 
   kafka:
-    image: confluentinc/cp-kafka:7.5.3 # Kafka broker
+    image: confluentinc/cp-kafka:7.5.3
     container_name: corebank-kafka
     ports:
-      - "9093:9092" # Port for Kafka clients
+      - "9093:9092"
     environment:
       KAFKA_BROKER_ID: 1
-      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181 # Connects to our zookeeper service
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9093 # Important for external access
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:9093
       KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
       KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
     depends_on:
-      - zookeeper # Kafka depends on Zookeeper being up
-    healthcheck: # Health check for Kafka
-      test: ["CMD", "cub kafka-ready", "-b", "localhost:9093", "-t", "5000", "-d"] # More robust health check
+      - zookeeper
+    healthcheck:
+      test: [ "CMD-SHELL", "nc -z kafka 9092" ]
       interval: 10s
       timeout: 5s
       retries: 5
 
+
 volumes:
-  mysql_data: # Define the named volume for MySQL data persistence
+  mysql_data:
     driver: local
